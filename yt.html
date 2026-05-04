@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Focus Player - High Speed Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 10px; }
+        body { background-color: #050505; color: #f4f4f5; overflow: hidden; }
+        
+        .active-video { border-color: #ef4444 !important; background-color: rgba(239, 68, 68, 0.15) !important; }
+        .active-view-playlist { background-color: #18181b !important; color: white !important; }
+        
+        .video-container {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: black;
+            border-radius: 1.5rem;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .dragging { opacity: 0.4; transform: scale(0.98); }
+
+        .loader {
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top: 3px solid #ef4444;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        input.inline-edit {
+            background: #18181b;
+            border: 1px solid #3f3f46;
+            outline: none;
+            color: white;
+            width: 100%;
+            font-weight: bold;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <div class="flex h-screen overflow-hidden">
+        
+        <!-- Sidebar: Quản lý bộ sưu tập -->
+        <aside class="w-72 bg-[#0a0a0a] border-r border-zinc-900 flex flex-col shrink-0">
+            <div class="p-8">
+                <div class="flex items-center gap-3 mb-10">
+                    <div class="bg-red-600 p-2 rounded-xl shadow-lg shadow-red-900/20">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-white"><path d="m15 12-8.5 6V6Z"/></svg>
+                    </div>
+                    <h1 class="text-2xl font-black tracking-tighter italic text-white leading-none">FOCUS.</h1>
+                </div>
+                
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-[11px] font-black text-zinc-600 uppercase tracking-[0.25em]">Bộ sưu tập</h2>
+                    <button onclick="autoCreatePlaylist()" class="p-1.5 bg-zinc-900 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-all" title="Tạo nhanh">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                    </button>
+                </div>
+                
+                <nav id="playlistManager" class="space-y-1 overflow-y-auto max-h-[60vh] custom-scrollbar pr-1">
+                    <!-- Playlist render here -->
+                </nav>
+            </div>
+            
+            <div class="mt-auto p-6">
+                <p class="text-[9px] text-zinc-700 font-bold uppercase tracking-[0.2em] text-center mb-4 italic">Double click tên để sửa</p>
+                <div class="bg-zinc-900/40 p-4 rounded-2xl border border-zinc-800/50 text-center">
+                    <p class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest leading-none">Smart Formatting Active</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col overflow-hidden bg-zinc-950/20">
+            <!-- Header -->
+            <header class="h-20 border-b border-zinc-900 flex items-center justify-between px-10 shrink-0 bg-black/20 backdrop-blur-xl">
+                <div class="flex items-center gap-4 flex-1">
+                    <div class="flex flex-col">
+                        <h2 id="viewingPlaylistName" class="text-xl font-bold text-white tracking-tight italic truncate">Đang tải...</h2>
+                        <span id="playingIndicator" class="hidden text-[9px] text-red-500 font-black uppercase tracking-widest mt-0.5 animate-pulse">Đang phát từ danh sách này</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div id="playerStatus" class="hidden flex items-center gap-2 bg-zinc-900/50 px-4 py-1.5 rounded-full border border-zinc-800">
+                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                        <span id="statusText" class="text-[10px] font-black text-zinc-400 uppercase tracking-widest leading-none">Ready</span>
+                    </div>
+                </div>
+            </header>
+
+            <div class="flex-1 flex overflow-hidden">
+                <!-- Video Section -->
+                <section class="flex-1 p-8 overflow-y-auto custom-scrollbar flex flex-col items-center">
+                    <div class="max-w-5xl w-full space-y-6">
+                        
+                        <!-- Player Container -->
+                        <div class="video-container shadow-2xl border border-zinc-800">
+                            <div id="loadingIndicator" class="hidden absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-20 backdrop-blur-sm">
+                                <div class="loader mb-4"></div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Connecting Stream...</p>
+                            </div>
+
+                            <div id="player" class="w-full h-full"></div>
+
+                            <div id="placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-zinc-800 bg-zinc-950 z-10 pointer-events-none transition-opacity">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-10 mb-4"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+                                <p class="text-xs font-black tracking-widest uppercase opacity-20 text-center">Video sẽ xuất hiện tại đây</p>
+                            </div>
+                        </div>
+
+                        <!-- Input Area -->
+                        <div class="bg-zinc-900/40 border border-zinc-900 p-5 rounded-3xl flex items-center gap-4 focus-within:border-zinc-700 transition-all">
+                            <textarea id="bulkInput" rows="1" class="flex-1 bg-transparent border-none text-zinc-200 placeholder:text-zinc-700 outline-none resize-none py-2 text-sm custom-scrollbar" placeholder="Dán link YouTube (URL | Tiêu đề)..."></textarea>
+                            <button onclick="addVideos()" id="addBtn" class="h-11 px-8 bg-white text-black hover:bg-zinc-200 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all active:scale-95 shadow-xl shrink-0">
+                                Thêm video
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Queue Section -->
+                <section class="w-96 border-l border-zinc-900 bg-black/40 flex flex-col">
+                    <div class="p-8 flex items-center justify-between shrink-0">
+                        <div>
+                            <h3 class="text-[11px] font-black text-zinc-500 uppercase tracking-widest leading-none">Hàng đợi</h3>
+                            <p id="queueCount" class="text-xs font-bold text-zinc-700 mt-1.5 uppercase tracking-tighter">0 Items</p>
+                        </div>
+                        <button onclick="clearCurrentViewList()" class="text-[10px] text-zinc-700 hover:text-red-500 font-black uppercase tracking-widest transition-colors">Dọn sạch</button>
+                    </div>
+                    
+                    <div id="playlistContainer" class="flex-1 overflow-y-auto px-6 pb-10 space-y-3 custom-scrollbar">
+                        <!-- Videos list -->
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Nạp API script
+        var tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        let player;
+        let data = {
+            viewingPlaylistId: 'default',
+            playbackPlaylistId: null,
+            playbackVideoIndex: -1,
+            playlists: {
+                'default': { name: 'Bộ sưu tập 1', items: [] }
+            }
+        };
+
+        function initData() {
+            const saved = localStorage.getItem('focus_speed_v4');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    if (parsed.playlists) {
+                        data.playlists = parsed.playlists;
+                        data.viewingPlaylistId = parsed.viewingPlaylistId || 'default';
+                    }
+                } catch (e) { console.error("Lỗi dữ liệu", e); }
+            }
+            renderPlaylistTabs();
+            renderQueue();
+            updateHeader();
+        }
+
+        function saveData() {
+            localStorage.setItem('focus_speed_v4', JSON.stringify({
+                playlists: data.playlists,
+                viewingPlaylistId: data.viewingPlaylistId
+            }));
+        }
+
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('player', {
+                height: '100%',
+                width: '100%',
+                host: 'https://www.youtube-nocookie.com',
+                videoId: '',
+                playerVars: {
+                    'autoplay': 1,
+                    'controls': 1,
+                    'modestbranding': 1,
+                    'rel': 0,
+                    'enablejsapi': 1
+                },
+                events: {
+                    'onReady': () => initData(),
+                    'onStateChange': onPlayerStateChange,
+                    'onError': () => hideLoading()
+                }
+            });
+        }
+
+        function onPlayerStateChange(event) {
+            const status = document.getElementById('playerStatus');
+            const statusText = document.getElementById('statusText');
+
+            if (event.data === YT.PlayerState.BUFFERING) {
+                showLoading();
+                statusText.innerText = "Buffering...";
+            } else if (event.data === YT.PlayerState.PLAYING) {
+                hideLoading();
+                status.classList.remove('hidden');
+                statusText.innerText = "Playing";
+            } else if (event.data === YT.PlayerState.ENDED) {
+                nextVideoAuto();
+            } else {
+                hideLoading();
+            }
+        }
+
+        function showLoading() { document.getElementById('loadingIndicator').classList.remove('hidden'); }
+        function hideLoading() { document.getElementById('loadingIndicator').classList.add('hidden'); }
+
+        // --- Sidebar Logic ---
+        function renderPlaylistTabs() {
+            const container = document.getElementById('playlistManager');
+            container.innerHTML = '';
+            
+            Object.keys(data.playlists).forEach(id => {
+                const isActive = data.viewingPlaylistId === id;
+                const isPlaying = data.playbackPlaylistId === id;
+                const div = document.createElement('div');
+                div.className = `flex items-center justify-between group px-4 py-3 rounded-xl cursor-pointer transition-all border ${isActive ? 'active-view-playlist border-zinc-800 shadow-lg' : 'text-zinc-500 border-transparent hover:bg-zinc-900/40'}`;
+                
+                div.onclick = () => switchViewPlaylist(id);
+                div.ondblclick = (e) => enableInlineRename(e, id);
+                
+                div.innerHTML = `
+                    <div class="flex flex-col min-w-0 pr-2">
+                        <span id="name-${id}" class="text-xs font-bold truncate tracking-tight">${data.playlists[id].name}</span>
+                        ${isPlaying ? '<span class="text-[8px] text-red-500 font-black uppercase mt-0.5">Playing</span>' : ''}
+                    </div>
+                    <button onclick="deletePlaylist(event, '${id}')" class="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all p-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    </button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function autoCreatePlaylist() {
+            const count = Object.keys(data.playlists).length + 1;
+            const id = 'pl_' + Date.now();
+            data.playlists[id] = { name: `Bộ sưu tập ${count}`, items: [] };
+            data.viewingPlaylistId = id;
+            saveData();
+            renderPlaylistTabs();
+            renderQueue();
+            updateHeader();
+        }
+
+        function switchViewPlaylist(id) {
+            data.viewingPlaylistId = id;
+            saveData();
+            renderPlaylistTabs();
+            renderQueue();
+            updateHeader();
+        }
+
+        function enableInlineRename(e, id) {
+            e.stopPropagation();
+            const nameSpan = document.getElementById(`name-${id}`);
+            const currentName = data.playlists[id].name;
+            const input = document.createElement('input');
+            input.className = 'inline-edit text-[11px]';
+            input.value = currentName;
+            
+            nameSpan.replaceWith(input);
+            input.focus();
+            input.select();
+
+            const finish = () => {
+                const newVal = input.value.trim() || currentName;
+                data.playlists[id].name = newVal;
+                saveData();
+                renderPlaylistTabs();
+                updateHeader();
+            };
+
+            input.onblur = finish;
+            input.onkeydown = (ev) => {
+                if (ev.key === 'Enter') finish();
+                if (ev.key === 'Escape') { input.value = currentName; finish(); }
+            };
+        }
+
+        function deletePlaylist(e, id) {
+            e.stopPropagation();
+            if (Object.keys(data.playlists).length <= 1) return;
+            if (!confirm('Xóa vĩnh viễn bộ sưu tập này?')) return;
+            
+            delete data.playlists[id];
+            if (data.viewingPlaylistId === id) data.viewingPlaylistId = Object.keys(data.playlists)[0];
+            if (data.playbackPlaylistId === id) {
+                data.playbackPlaylistId = null;
+                data.playbackVideoIndex = -1;
+            }
+            saveData();
+            renderPlaylistTabs();
+            renderQueue();
+            updateHeader();
+        }
+
+        function updateHeader() {
+            document.getElementById('viewingPlaylistName').innerText = data.playlists[data.viewingPlaylistId].name;
+            const isPlayingThis = data.viewingPlaylistId === data.playbackPlaylistId;
+            document.getElementById('playingIndicator').classList.toggle('hidden', !isPlayingThis);
+        }
+
+        // --- Video Logic ---
+        function extractId(url) {
+            const reg = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+            const match = url.trim().match(reg);
+            return (match && match[2].length === 11) ? match[2] : null;
+        }
+
+        async function fetchTitle(id) {
+            try {
+                const res = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${id}`);
+                const json = await res.json();
+                return json.title || 'Video: ' + id;
+            } catch { return 'Video: ' + id; }
+        }
+
+        async function addVideos() {
+            const val = document.getElementById('bulkInput').value;
+            const lines = val.split('\n').filter(l => l.trim() !== '');
+            const list = data.playlists[data.viewingPlaylistId].items;
+            
+            for (const line of lines) {
+                // Hỗ trợ định dạng: URL | Tiêu đề tùy chỉnh
+                const parts = line.split('|');
+                const urlPart = parts[0].trim();
+                const customTitle = parts[1] ? parts[1].trim() : null;
+
+                const id = extractId(urlPart);
+                if (id && !list.find(v => v.id === id)) {
+                    let title;
+                    if (customTitle) {
+                        title = customTitle;
+                    } else {
+                        title = await fetchTitle(id);
+                    }
+                    list.push({ id, title });
+                }
+            }
+            
+            document.getElementById('bulkInput').value = '';
+            saveData();
+            renderQueue();
+        }
+
+        function renderQueue() {
+            const container = document.getElementById('playlistContainer');
+            const list = data.playlists[data.viewingPlaylistId].items;
+            document.getElementById('queueCount').innerText = list.length + ' Items';
+            container.innerHTML = '';
+
+            if (list.length === 0) {
+                container.innerHTML = `<div class="text-center py-20 text-zinc-900 font-black border-2 border-dashed border-zinc-900 rounded-[2rem]">Trống</div>`;
+                return;
+            }
+
+            list.forEach((v, i) => {
+                const isActuallyPlaying = data.playbackPlaylistId === data.viewingPlaylistId && data.playbackVideoIndex === i;
+                const div = document.createElement('div');
+                div.className = `group relative flex items-center gap-4 p-3 bg-zinc-900/30 border border-zinc-900/50 rounded-2xl cursor-pointer transition-all ${isActuallyPlaying ? 'active-video' : 'hover:border-zinc-700 hover:bg-zinc-900/50'}`;
+                div.draggable = true;
+                
+                div.ondragstart = (e) => { e.dataTransfer.setData('text/plain', i); div.classList.add('dragging'); };
+                div.ondragover = (e) => e.preventDefault();
+                div.ondrop = (e) => handleReorder(parseInt(e.dataTransfer.getData('text/plain')), i);
+                div.ondragend = () => div.classList.remove('dragging');
+
+                div.innerHTML = `
+                    <div class="w-16 aspect-video bg-zinc-900 rounded-xl overflow-hidden shrink-0 border border-zinc-800">
+                        <img src="https://img.youtube.com/vi/${v.id}/mqdefault.jpg" class="w-full h-full object-cover">
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-[11px] font-bold text-zinc-200 line-clamp-2 leading-tight">${v.title}</p>
+                    </div>
+                    <button onclick="removeVideo(event, ${i})" class="opacity-0 group-hover:opacity-100 p-2 text-zinc-600 hover:text-red-500 transition-all shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    </button>
+                `;
+                div.onclick = () => playVideo(data.viewingPlaylistId, i);
+                container.appendChild(div);
+            });
+        }
+
+        function playVideo(playlistId, index) {
+            const list = data.playlists[playlistId].items;
+            if (!list[index]) return;
+            
+            showLoading();
+            data.playbackPlaylistId = playlistId;
+            data.playbackVideoIndex = index;
+            
+            if (player && player.stopVideo) player.stopVideo();
+
+            player.loadVideoById(list[index].id);
+            document.getElementById('placeholder').classList.add('hidden');
+            renderPlaylistTabs();
+            renderQueue();
+            updateHeader();
+        }
+
+        function nextVideoAuto() {
+            if (!data.playbackPlaylistId) return;
+            const list = data.playlists[data.playbackPlaylistId].items;
+            if (list.length === 0) return;
+            
+            let next = data.playbackVideoIndex + 1;
+            if (next >= list.length) next = 0;
+            playVideo(data.playbackPlaylistId, next);
+        }
+
+        function removeVideo(e, index) {
+            e.stopPropagation();
+            const list = data.playlists[data.viewingPlaylistId].items;
+            list.splice(index, 1);
+            
+            if (data.playbackPlaylistId === data.viewingPlaylistId) {
+                if (index === data.playbackVideoIndex) {
+                    data.playbackPlaylistId = null;
+                    data.playbackVideoIndex = -1;
+                    player.stopVideo();
+                    document.getElementById('placeholder').classList.remove('hidden');
+                } else if (index < data.playbackVideoIndex) {
+                    data.playbackVideoIndex--;
+                }
+            }
+            saveData();
+            renderQueue();
+        }
+
+        function handleReorder(from, to) {
+            const list = data.playlists[data.viewingPlaylistId].items;
+            const item = list.splice(from, 1)[0];
+            list.splice(to, 0, item);
+            
+            if (data.playbackPlaylistId === data.viewingPlaylistId) {
+                if (data.playbackVideoIndex === from) data.playbackVideoIndex = to;
+                else if (from < data.playbackVideoIndex && to >= data.playbackVideoIndex) data.playbackVideoIndex--;
+                else if (from > data.playbackVideoIndex && to <= data.playbackVideoIndex) data.playbackVideoIndex++;
+            }
+            
+            saveData();
+            renderQueue();
+        }
+
+        function clearCurrentViewList() {
+            if (!confirm('Xóa sạch hàng đợi hiện tại?')) return;
+            const currentId = data.viewingPlaylistId;
+            data.playlists[currentId].items = [];
+            
+            if (data.playbackPlaylistId === currentId) {
+                data.playbackPlaylistId = null;
+                data.playbackVideoIndex = -1;
+                player.stopVideo();
+                document.getElementById('placeholder').classList.remove('hidden');
+            }
+            
+            saveData();
+            renderQueue();
+            renderPlaylistTabs();
+        }
+    </script>
+</body>
+</html>
